@@ -52,7 +52,7 @@ Inside your agent, ask in plain language:
 
 > 下载这个视频:https://www.youtube.com/watch?v=...
 
-The skill fires, checks the environment (reuses existing binaries, doesn't reinstall), acquires cookies from a logged-in Chromium browser if the site needs login, and downloads the best-quality mp4. For sites that don't require login (many public Bilibili / Twitter videos), it skips the cookie step.
+The skill fires, checks the environment (reuses existing binaries, doesn't reinstall), acquires cookies from a logged-in Chromium browser if the site needs login, and downloads the best-quality mp4. For sites that don't require login (many public Bilibili / X videos), it skips the cookie step.
 
 When the download finishes, hand the mp4 path to the `video-subtitle` skill for transcription and bilingual subtitles.
 

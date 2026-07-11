@@ -1,9 +1,9 @@
 ---
 name: video-download
-description: Download a video at the best available quality as a single mp4, from YouTube or any of the thousand-plus sites yt-dlp supports (Bilibili, Twitter/X, Vimeo, etc.). Use when the user wants to download a video, mentions 下载视频 / 生肉下载 / yt-dlp, or gives a URL to fetch. The downloaded mp4 is the raw input to the video-subtitle skill.
+description: Download a video at the best available quality as a single mp4, from YouTube or any of the thousand-plus sites yt-dlp supports (Bilibili, X (Twitter), Vimeo, etc.). Use when the user wants to download a video, mentions 下载视频 / 生肉下载 / yt-dlp, or gives a URL to fetch. The downloaded mp4 is the raw input to the video-subtitle skill.
 ---
 
-Download a video at the **best available quality** as a single merged mp4. Uses [yt-dlp](https://github.com/yt-dlp/yt-dlp), which supports a thousand-plus sites — YouTube, Bilibili, Twitter/X, Vimeo, and most others. This skill handles the defenses you'll hit on the hard ones — YouTube's **n-challenge** (JavaScript signature) and **login wall**, site-specific geo-blocks — by pairing yt-dlp with a Node runtime and, where needed, Chromium cookies. No packaging script: yt-dlp is a mature CLI, the skill calls it directly.
+Download a video at the **best available quality** as a single merged mp4. Uses [yt-dlp](https://github.com/yt-dlp/yt-dlp), which supports a thousand-plus sites — YouTube, Bilibili, X (Twitter), Vimeo, and most others. This skill handles the defenses you'll hit on the hard ones — YouTube's **n-challenge** (JavaScript signature) and **login wall**, site-specific geo-blocks — by pairing yt-dlp with a Node runtime and, where needed, Chromium cookies. No packaging script: yt-dlp is a mature CLI, the skill calls it directly.
 
 The output mp4 is the **raw input to the `video-subtitle` skill**. Run this skill first when the user gives a URL and wants subtitles; the two skills chain by hand (download → then subtitle).
 
@@ -30,7 +30,7 @@ The completion criterion for this step: you can name the exact yt-dlp binary pat
 
 ### Step 1 — Acquire cookies if the site requires login
 
-Many sites — YouTube especially — block unauthenticated yt-dlp requests with a "Sign in to confirm you're not a bot" wall or an age/membership gate. Cookies from a logged-in browser session get past it. **Skip this step entirely for sites that don't require login** (many Bilibili / Twitter / public videos download fine with no cookies — try Step 2 first; only come back here if Step 2 fails with an auth error).
+Many sites — YouTube especially — block unauthenticated yt-dlp requests with a "Sign in to confirm you're not a bot" wall or an age/membership gate. Cookies from a logged-in browser session get past it. **Skip this step entirely for sites that don't require login** (many Bilibili / X / public videos download fine with no cookies — try Step 2 first; only come back here if Step 2 fails with an auth error).
 
 The user must have already logged into the target site in some Chromium-based browser (Chrome, Edge, Doubao/豆包, Brave, etc.). Ask which one if it isn't obvious.
 
