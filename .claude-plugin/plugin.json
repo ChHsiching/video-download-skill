@@ -1,0 +1,6 @@
+{
+  "name": "video-download-skill",
+  "skills": [
+    "./skills/video-download"
+  ]
+}

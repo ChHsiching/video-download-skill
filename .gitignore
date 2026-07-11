@@ -1,0 +1,38 @@
+# Downloaded media — never commit
+*.mp4
+*.mkv
+*.webm
+*.mov
+*.avi
+*.m4a
+*.opus
+*.mp3
+
+# yt-dlp sidecar files
+*.info.json
+*.json.tmp
+*.webp
+*.jpg
+*.jpeg
+*.srt
+*.vtt
+*.ass
+*.upload.md
+cookies/
+test_output/
+/tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
