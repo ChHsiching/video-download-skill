@@ -10,8 +10,9 @@ The output mp4 is the **raw input to the `video-subtitle` skill**. Run this skil
 ## What you produce
 
 1. `<title>.mp4` — best available quality, video + audio merged into one file
+2. `<title>.jpg` — the source video's cover thumbnail (for upload cover art). Produced by default.
 
-That's the only output. Single responsibility: fetch the raw video. Everything downstream (transcription, translation, hard-burn) is the `video-subtitle` skill's job.
+Single responsibility: fetch the raw video and its cover. Everything downstream (transcription, translation, hard-burn) is the `video-subtitle` skill's job.
 
 ## Environment reuse — never reinstall blindly
 
@@ -81,6 +82,18 @@ ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 "<
 ```
 
 A duration > 0 means the file is playable end to end.
+
+### Step 4 — Fetch the cover thumbnail
+
+The user will need a cover image when uploading. yt-dlp can pull the source's own thumbnail — usually the best cover art available, no manual screenshot needed:
+
+```bash
+yt-dlp --js-runtimes node [--cookies-from-browser "chromium:<cookies-dir>"] --write-thumbnail --skip-download --convert-thumbnails jpg -o "%(title)s.%(ext)s" "<URL>"
+```
+
+`--write-thumbnail` downloads the highest-resolution thumbnail the site exposes; `--skip-download` skips the video (already done in Step 3); `--convert-thumbnails jpg` normalizes to jpg (some sites serve webp). To see what's available first, run with `--list-thumbnails`.
+
+Done when `<title>.jpg` exists and is a valid image (non-zero size, opens in an image viewer). If the site has no thumbnail or it fails, tell the user — they'll need to make a cover from a video frame instead.
 
 ## Gotchas we hit and you will too
 
