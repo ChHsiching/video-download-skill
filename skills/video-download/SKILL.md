@@ -91,7 +91,7 @@ The user will need a cover image when uploading. yt-dlp can pull the source's ow
 yt-dlp --js-runtimes node [--cookies-from-browser "chromium:<cookies-dir>"] --write-thumbnail --skip-download --convert-thumbnails jpg -o "%(title)s.%(ext)s" "<URL>"
 ```
 
-`--write-thumbnail` downloads the highest-resolution thumbnail the site exposes; `--skip-download` skips the video (already done in Step 3); `--convert-thumbnails jpg` normalizes to jpg (some sites serve webp). To see what's available first, run with `--list-thumbnails`.
+`--write-thumbnail` picks yt-dlp's best-scored thumbnail — by the extractor's `preference`, then by resolution. On YouTube/Bilibili/X this resolves to the highest-resolution one (the source's own cover); the `preference` field exists so a high-res video frame can't out-rank the real cover. `--skip-download` skips the video (already done in Step 3); `--convert-thumbnails jpg` normalizes to jpg (some sites serve webp). To see what's available first, run with `--list-thumbnails`.
 
 Done when `<title>.jpg` exists and is a valid image (non-zero size, opens in an image viewer). If the site has no thumbnail or it fails, tell the user — they'll need to make a cover from a video frame instead.
 
