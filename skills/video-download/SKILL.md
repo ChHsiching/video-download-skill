@@ -1,18 +1,35 @@
 ---
 name: video-download
-description: Download a video at the best available quality as a single mp4, from YouTube or any of the thousand-plus sites yt-dlp supports (Bilibili, X (Twitter), Vimeo, etc.). Use when the user wants to download a video, mentions 下载视频 / 生肉下载 / yt-dlp, or gives a URL to fetch. The downloaded mp4 is the raw input to the video-subtitle skill.
+description: Download a video at the best available quality as a single mp4, from YouTube or any of the thousand-plus sites yt-dlp supports (Bilibili, X (Twitter), Vimeo, etc.). Use when the user wants to download a video, mentions 下载视频 / 生肉下载 / yt-dlp, or gives a URL to fetch.
 ---
 
-Download a video at the **best available quality** as a single merged mp4. Uses [yt-dlp](https://github.com/yt-dlp/yt-dlp), which supports a thousand-plus sites — YouTube, Bilibili, X (Twitter), Vimeo, and most others. This skill handles the defenses you'll hit on the hard ones — YouTube's **n-challenge** (JavaScript signature) and **login wall**, site-specific geo-blocks — by pairing yt-dlp with a Node runtime and, where needed, Chromium cookies. No packaging script: yt-dlp is a mature CLI, the skill calls it directly.
-
-The output mp4 is the **raw input to the `video-subtitle` skill**. Run this skill first when the user gives a URL and wants subtitles; the two skills chain by hand (download → then subtitle).
+Download a video at the **best available quality** as a single merged mp4, plus its source metadata and cover thumbnail. Uses [yt-dlp](https://github.com/yt-dlp/yt-dlp), which supports a thousand-plus sites — YouTube, Bilibili, X (Twitter), Vimeo, and most others. This skill handles the defenses you'll hit on the hard ones — YouTube's **n-challenge** (JavaScript signature) and **login wall**, site-specific geo-blocks — by pairing yt-dlp with a Node runtime and, where needed, browser cookies.
 
 ## What you produce
 
-1. `<title>.mp4` — best available quality, video + audio merged into one file
-2. `<title>.jpg` — the source video's cover thumbnail (for upload cover art). Produced by default.
+Three files, all sharing one `<name>` stem, all under a per-video output directory:
 
-Single responsibility: fetch the raw video and its cover. Everything downstream (transcription, translation, hard-burn) is the `video-subtitle` skill's job.
+1. `<name>.raw.mp4` — best available quality, video + audio merged into one file
+2. `<name>.source.json` — the source's own metadata (title, uploader, description, duration, upload date, URL, thumbnail). Captured so downstream work doesn't have to re-fetch it.
+3. `<name>.jpg` — the source video's cover thumbnail (best-scored by yt-dlp, normalized to jpg)
+
+## Where the outputs land
+
+Default layout — a per-video directory, one level under a folder named after the source author, with all three files inside `raw/`:
+
+```
+<output-root>/
+└── raw/
+    ├── <name>.raw.mp4
+    ├── <name>.source.json
+    └── <name>.jpg
+```
+
+- **`<output-root>`** defaults to `<cwd>/<author>/<video-name>/`. `<author>` and `<video-name>` are derived from the source metadata (uploader / title, lowercased with separators normalized). The user can override either.
+- **`<name>`** defaults to `<video-name>` (same stem as the directory). The user can override it.
+- **`raw/`** holds the original download.
+
+This layout is a generic "organize downloaded videos" convention. A user who just wants the file gets a tidy folder; a user who later wants subtitles can point a downstream skill at the same `<output-root>` and `<name>`, and find all three files at that path.
 
 ## Environment reuse — never reinstall blindly
 
@@ -22,89 +39,116 @@ Before downloading, check what's already on disk. Three things are needed and ea
    - The current project directory
    - `PATH` (run `yt-dlp --version`)
    Use the first one found. It **must** support EJS (the external JavaScript challenge solver) — the `stable` channel sometimes lags; if `-F` only returns storyboard images (no video/audio formats) on a site that requires JS challenge solving (notably YouTube), the version can't solve the n-challenge and you need the **nightly** channel: `yt-dlp --update-to nightly`, or download from `https://github.com/yt-dlp/yt-dlp/releases` if there's no binary at all. The PyInstaller-bundled `.exe` ships EJS scripts already; no extra install for those.
-2. **Node 22+**. yt-dlp solves the n-challenge in a JavaScript runtime. The default is **Deno**, which most Windows machines don't have — so you must pass `--js-runtimes node` explicitly. Check `node --version`; require >= 22.0.0. If Node is missing, tell the user to install it (don't try to install it yourself). Required only when the site needs JS challenge solving; harmless otherwise.
+2. **Node 22+**. yt-dlp solves the n-challenge in a JavaScript runtime. The default is **Deno**, which most Windows machines don't have — so you must pass `--js-runtimes node` explicitly. You also need `--remote-components ejs:github`, which tells yt-dlp to fetch the current EJS challenge-solving scripts from GitHub (the bundled ones drift out of date as sites change their challenges). Check `node --version`; require >= 22.0.0. If Node is missing, tell the user to install it (don't try to install it yourself). Required only when the site needs JS challenge solving; harmless otherwise.
 3. **ffmpeg**. yt-dlp merges the separate video and audio streams into one mp4 via ffmpeg. Run `ffmpeg -version`; if missing, tell the user to install it.
 
 The completion criterion for this step: you can name the exact yt-dlp binary path, Node is on PATH (>= 22), and ffmpeg is on PATH. Don't proceed to Step 1 until all three are confirmed.
 
 ## The pipeline
 
-### Step 1 — Acquire cookies if the site requires login
+### Step 1 — Try the URL with no cookies first
 
-Many sites — YouTube especially — block unauthenticated yt-dlp requests with a "Sign in to confirm you're not a bot" wall or an age/membership gate. Cookies from a logged-in browser session get past it. **Skip this step entirely for sites that don't require login** (many Bilibili / X / public videos download fine with no cookies — try Step 2 first; only come back here if Step 2 fails with an auth error).
-
-The user must have already logged into the target site in some Chromium-based browser (Chrome, Edge, Doubao/豆包, Brave, etc.). Ask which one if it isn't obvious.
-
-**The file-lock trap.** Chromium browsers keep an exclusive lock on the Cookies database while running. Closing the window is not enough — many of these browsers (Doubao especially) leave dozens of background processes alive. You must kill them all first:
+Many sites serve public videos without login — most unauthenticated Bilibili / X / Vimeo downloads work with no cookies at all. Don't reach for the cookie machinery until you've confirmed you need it.
 
 ```bash
-# Windows — replace the process name as needed (Doubao.exe, chrome.exe, msedge.exe, brave.exe)
-taskkill /F /IM Doubao.exe
+yt-dlp --js-runtimes node --remote-components ejs:github -F "<URL>"
 ```
 
-Verify with `tasklist | grep -i doubao` that nothing remains before copying.
+`-F` lists available formats without downloading. `--js-runtimes node --remote-components ejs:github` solves the n-challenge on sites that use one (YouTube especially); harmless on sites that don't.
 
-**Copy the cookies + the encryption key.** Chromium encrypts cookie values with a key in `Local State`. You need both files, and yt-dlp expects the standard profile subdirectory layout (`Default/Network/Cookies`):
+Evaluate the result:
+
+- **Format table lists real video and audio formats** (not just `sb0`–`sb3` storyboard images) → cookies not needed. Skip to Step 3 with no `--cookies-from-browser` flag.
+- **"Sign in to confirm you're not a bot" / login wall / age gate / members-only error** → the site requires cookies. Continue to Step 2.
+
+Done when `-F` returns real formats, whether cookieless (skip Step 2) or after cookies (Step 2 success).
+
+### Step 2 — Find a working cookie source when login is required
+
+You're here because Step 1 hit an auth wall. The goal is a `--cookies-from-browser <source>` value that makes Step 1's `-F` return real formats. Try sources in order from least to most invasive; stop at the first that works.
+
+**2a. Detect installed browsers, then try each one directly.** yt-dlp reads cookies straight from a browser's own profile — no copy needed — for the mainstream browsers it supports. Check which of these profile directories exist on the machine:
+
+| Browser | yt-dlp name | Windows profile |
+|---|---|---|
+| Firefox | `firefox` | `%APPDATA%\Mozilla\Firefox\Profiles` |
+| Chrome | `chrome` | `%LOCALAPPDATA%\Google\Chrome\User Data` |
+| Edge | `edge` | `%LOCALAPPDATA%\Microsoft\Edge\User Data` |
+| Brave | `brave` | `%LOCALAPPDATA%\BraveSoftware\Brave-Browser\User Data` |
+| Doubao (豆包) | `chromium:<profile-path>` | `%LOCALAPPDATA%\Doubao\User Data` |
+
+For each detected browser, retry Step 1's `-F` with `--cookies-from-browser <name>` added. Use the exact `name` from the table (Firefox/Chrome/Edge/Brave read directly; Doubao and other Chromium forks need the `chromium:<profile-path>` form because yt-dlp doesn't recognize their brand). Stop at the first one whose `-F` returns real formats; remember it for Step 3 and Step 4.
+
+**2b. If direct reads all fail, copy the cookies to a temp directory.** This handles two failure modes: a Chromium browser holding an exclusive lock on its Cookies database, and a Chromium fork yt-dlp can't read in-place. **Ask the user which browser they're logged into the target site with** — don't guess; trying a browser where they aren't logged in wastes a cycle and the failure mode looks identical to "cookies broken".
+
+Kill that browser's processes first (closing the window is not enough — Chromium browsers leave background processes alive that hold the lock):
+
+```bash
+# Windows — replace the process name (Doubao.exe, chrome.exe, msedge.exe, brave.exe)
+taskkill /F /IM <browser>.exe
+# verify nothing remains before copying
+tasklist | findstr /I "<browser>"
+```
+
+Then copy both the Cookies database and its encryption key. Chromium encrypts cookie values with a key stored in `Local State`; you need both. yt-dlp expects the standard profile subdirectory layout:
 
 ```bash
 # <UserData> = e.g. C:\Users\<user>\AppData\Local\Doubao\User Data
+# <cookies-dir> = a Windows-native absolute path (e.g. C:\Users\<user>\AppData\Local\Temp\yt-cookies)
 mkdir -p "<cookies-dir>\Default\Network"
 copy "<UserData>\Default\Network\Cookies" "<cookies-dir>\Default\Network\Cookies"
 copy "<UserData>\Local State" "<cookies-dir>\Local State"
 ```
 
-Use a **Windows-native absolute path** for `<cookies-dir>` (e.g. `C:\Users\<user>\AppData\Local\Temp\yt-cookies`). Do **not** use a Git-Bash `/tmp/...` path — the nightly build's cookie loader won't resolve it and you'll get "could not find chromium cookies database".
+Use a **Windows-native absolute path** for `<cookies-dir>`. Do not use a Git-Bash `/tmp/...` path — the nightly build's cookie loader rejects it with "could not find chromium cookies database". Then retry `-F` with `--cookies-from-browser "chromium:<cookies-dir>"`.
 
-Done when both `<cookies-dir>\Default\Network\Cookies` and `<cookies-dir>\Local State` exist (or when you've confirmed Step 2 works without cookies and skipped this).
+**2c. If everything fails, stop and tell the user.** Report which browsers you tried and that none worked. Ask the user to log into the target site in some browser and re-run. Stop here — the failure mode of "tried a browser where they aren't logged in" looks identical to "cookies broken", so more guessing won't help.
 
-### Step 2 — List formats and confirm the challenge is solved
+Done when `-F` (with whatever cookie source you found) returns real video/audio formats. Carry that cookie source forward to Step 3 and Step 4.
 
-```bash
-yt-dlp --js-runtimes node [--cookies-from-browser "chromium:<cookies-dir>"] -F "<URL>"
-```
+### Step 3 — Download the video, the metadata, and the thumbnail
 
-Include `--cookies-from-browser` only if Step 1 produced a cookies directory. `--js-runtimes node` is needed for sites with JS challenges (YouTube); harmless elsewhere. `-F` lists what's available without downloading.
+Set up the output paths first. Derive `<author>` and `<video-name>` from the metadata you saw in Step 1's `-F` run (or a quick `--dump-json --skip-download` if you skipped it). Defaults: `<author>` from the uploader/channel, lowercased with separators normalized to `-`; `<video-name>` from the title the same way; `<name>` equals `<video-name>`. Confirm `<output-root>` (default `<cwd>/<author>/<video-name>/`) and `<name>` with the user before downloading — these set the filename stem for every downstream artifact.
 
-Done when the format table lists real video and audio formats (not just `sb0`–`sb3` storyboard images). If you only see storyboard images on YouTube, the n-challenge wasn't solved — re-check `--js-runtimes node` and Node >= 22, and that yt-dlp is on nightly. If you get a "Sign in" / bot error, you need cookies — go back to Step 1.
-
-### Step 3 — Download and merge at best quality
+Then download all three artifacts in one `yt-dlp` call:
 
 ```bash
-yt-dlp --js-runtimes node [--cookies-from-browser "chromium:<cookies-dir>"] -f "bestvideo+bestaudio" --merge-output-format mp4 -o "%(title)s.%(ext)s" "<URL>"
+yt-dlp --js-runtimes node --remote-components ejs:github \
+  [--cookies-from-browser "<source-from-step-2>"] \
+  -f "bestvideo+bestaudio" --merge-output-format mp4 \
+  --write-thumbnail --convert-thumbnails jpg \
+  --dump-json \
+  -o "<output-root>/raw/<name>.raw.%(ext)s" \
+  "<URL>"
 ```
 
-`-f "bestvideo+bestaudio"` picks the highest-resolution video stream and the highest-bitrate audio stream separately, then `--merge-output-format mp4` muxes them with ffmpeg into one file. Sites that serve video and audio as separate adaptive streams above 720p (YouTube, others) require this two-stream + merge approach to actually get 1080p+ with sound. If the site only offers muxed streams (video+audio together), `bestvideo+bestaudio` falls back to the best muxed format automatically.
+What each flag does:
 
-Done when `<title>.mp4` exists and `ffprobe` reports a positive duration. Verify:
+- `-f "bestvideo+bestaudio"` picks the highest-resolution video and highest-bitrate audio streams separately; `--merge-output-format mp4` muxes them with ffmpeg. Sites that serve video and audio as separate adaptive streams above 720p (YouTube, others) require this two-stream + merge to actually get 1080p+ with sound. If the site only offers muxed streams, `bestvideo+bestaudio` falls back to the best muxed format automatically.
+- `--write-thumbnail --convert-thumbnails jpg` writes the best-scored thumbnail (the source's own cover, not a video frame) normalized to jpg. Some sites serve webp; this normalizes it.
+- `--dump-json` emits one JSON line with the source's full metadata to stdout. Redirect it to `<name>.source.json`. The full yt-dlp info-dict is preserved (notably `title`, `uploader`, `channel`, `duration`, `upload_date`, `webpage_url`, `description`, `thumbnail`).
+- `-o "<output-root>/raw/<name>.raw.%(ext)s"` — note the literal `.raw` before `%(ext)s`. This makes the video land as `<name>.raw.mp4` (matching the documented stem), while the thumbnail (different `%(ext)s` resolution) lands as `<name>.jpg` because `--convert-thumbnails jpg` overrides the extension.
+
+**Quality override.** The default takes the best quality the source offers. If the user asked for less (e.g. "1080p is fine", "skip 4K"), replace `-f "bestvideo+bestaudio"` with `-f "bv*[height<=1080]+ba/b[height<=1080]"` (caps height at 1080p, falls back to the best muxed stream at or under 1080p). Make this swap only when the user asks; the default is best-quality.
+
+To capture the JSON to its file, redirect `--dump-json`'s stdout — for example, in PowerShell:
+
+```powershell
+yt-dlp ... --dump-json -o "<output-root>/raw/<name>.raw.%(ext)s" "<URL>" > "<output-root>/raw/<name>.source.json"
+```
+
+Done when `<output-root>/raw/<name>.raw.mp4` exists and `ffprobe` reports `duration > 0`:
 
 ```bash
-ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 "<title>.mp4"
+ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 "<output-root>/raw/<name>.raw.mp4"
 ```
 
-A duration > 0 means the file is playable end to end.
-
-### Step 4 — Fetch the cover thumbnail
-
-The user will need a cover image when uploading. yt-dlp can pull the source's own thumbnail — usually the best cover art available, no manual screenshot needed:
-
-```bash
-yt-dlp --js-runtimes node [--cookies-from-browser "chromium:<cookies-dir>"] --write-thumbnail --skip-download --convert-thumbnails jpg -o "%(title)s.%(ext)s" "<URL>"
-```
-
-`--write-thumbnail` picks yt-dlp's best-scored thumbnail — by the extractor's `preference`, then by resolution. On YouTube/Bilibili/X this resolves to the highest-resolution one (the source's own cover); the `preference` field exists so a high-res video frame can't out-rank the real cover. `--skip-download` skips the video (already done in Step 3); `--convert-thumbnails jpg` normalizes to jpg (some sites serve webp). To see what's available first, run with `--list-thumbnails`.
-
-Done when `<title>.jpg` exists and is a valid image (non-zero size, opens in an image viewer). If the site has no thumbnail or it fails, tell the user — they'll need to make a cover from a video frame instead.
+`duration > 0` means the file is a well-formed, playable mp4. The source JSON and the thumbnail are degraded-completion artifacts — some sources have no thumbnail, and a transient `--dump-json` failure shouldn't block the download. If either is missing, tell the user explicitly (they'll need a frame-grab cover later, and downstream metadata will have to be re-fetched) but the video itself counts as done. To preview which thumbnails a source offers before downloading, swap Step 1's `-F` for `--list-thumbnails`.
 
 ## Gotchas we hit and you will too
 
-- **`--js-runtimes node` is not optional (for JS-challenge sites).** yt-dlp defaults to Deno. On a machine without Deno, omitting this flag means YouTube's n-challenge fails silently and you only get storyboard images — no video. Always pass `--js-runtimes node` (or `--js-runtimes node:/path/to/node` if Node isn't on PATH) when the site needs JS solving.
-- **Stable may lag.** Sites change their JS challenges frequently. If nightly doesn't work today, the challenge may have changed again — check yt-dlp issues. The bundled EJS scripts update with the binary.
-- **Closing the browser window ≠ exiting the browser.** Chromium-based browsers keep background processes running. `taskkill /F /IM <browser>.exe` and verify with `tasklist` before copying cookies. A locked Cookies database throws "Could not copy Chrome cookie database" or "Device or resource busy".
-- **Cookies-copy directory layout matters.** yt-dlp looks for `<dir>\Default\Network\Cookies` and `<dir>\Local State`. Recreate that subtree when copying.
-- **Use Windows paths, not MSYS/Git-Bash paths.** `C:\Users\...\Temp\yt-cookies` works; `/tmp/yt-cookies` does not — the nightly cookie loader rejects it with "could not find chromium cookies database".
-- **The `--cookies-from-browser` value is `chromium:<path>`, not `chrome:<path>`.** The `chromium:` prefix covers Chrome, Edge, Brave, Doubao, Vivaldi — anything Chromium-based. `chrome:` only matches Google Chrome's install path.
-- **Not every site needs cookies or JS solving.** Try the plain `-F` first on a new site; only add the cookie machinery if you hit an auth wall. yt-dlp's [support list](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) notes per-site quirks.
+- **Stable may lag the challenge.** Sites change their JS challenges frequently. If `-F` returns only storyboard images on a site that should serve video (YouTube most commonly), and `--js-runtimes node --remote-components ejs:github` is already set, the bundled EJS scripts may be stale — switch yt-dlp to nightly (`yt-dlp --update-to nightly`) or check [yt-dlp issues](https://github.com/yt-dlp/yt-dlp/issues). Per-site quirks are noted in yt-dlp's [support list](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
-## Handoff to video-subtitle
+## Handoff
 
-Once `<title>.mp4` is downloaded and verified, tell the user the file is ready and that the next step is the `video-subtitle` skill — give it the mp4 path and ask for bilingual or single-language subtitles. Don't run that skill from inside this one; the user may want to review the raw video first.
+When `<name>.raw.mp4` is downloaded and verified, tell the user the files are ready, in `<output-root>/raw/`, sharing the stem `<name>`. If they want subtitles next, point the subtitle skill at `<output-root>` and `<name>` — all three files (mp4, source.json, jpg) are findable at that path under that stem. Don't run the subtitle skill from inside this one; the user may want to review the raw video first.

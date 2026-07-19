@@ -6,24 +6,32 @@ Built and tested on a CPU-only Windows machine against a real YouTube video.
 
 ## What it produces
 
+Three files in a per-video directory, all sharing one `<name>` stem:
+
 | File | What it is |
 |---|---|
-| `<title>.mp4` | Best available quality, video + audio merged into one file |
+| `<name>.raw.mp4` | Best available quality, video + audio merged into one file |
+| `<name>.source.json` | The source's own metadata (title, uploader, description, duration, upload date, URL, thumbnail) — captured so downstream work doesn't re-fetch |
+| `<name>.jpg` | The source's cover thumbnail (best-scored, normalized to jpg) |
 
-Single responsibility: fetch the raw video. Transcription, translation, and hard-burning subtitles are the video-subtitle skill's job.
+Default layout: `<cwd>/<author>/<video-name>/raw/<name>.{raw.mp4,source.json,jpg}`. The user can override the directory or the stem.
+
+Single responsibility: fetch the raw video and its metadata. Transcription, translation, and hard-burning subtitles are the video-subtitle skill's job.
 
 ## How it works
 
 ```
 <URL>
   │
-  ├─ yt-dlp -F ──► format list (pick bestvideo + bestaudio)
+  ├─ yt-dlp -F ──► format list (no cookies first; escalate only on auth wall)
   │     │
-  │     ├─ --js-runtimes node ──► solves YouTube's n-challenge
-  │     └─ --cookies-from-browser chromium:<copy> ──► passes the login wall
+  │     ├─ --js-runtimes node --remote-components ejs:github ──► solves YouTube's n-challenge
+  │     └─ --cookies-from-browser <detected> ──► passes the login wall (only if needed)
   │
-  └─ yt-dlp -f bestvideo+bestaudio --merge-output-format mp4 ──► <title>.mp4
-        (ffmpeg muxes the separate streams into one file)
+  └─ yt-dlp -f bestvideo+bestaudio --merge-output-format mp4 \
+       --write-thumbnail --convert-thumbnails jpg --dump-json
+       ──► <name>.raw.mp4 + <name>.source.json + <name>.jpg
+       (ffmpeg muxes the separate streams into one file)
 ```
 
 YouTube (and other adaptive-streaming sites) serve video and audio as **separate streams** above 720p. Fetching `bestvideo+bestaudio` and merging is the only way to get 1080p+ with sound.
@@ -31,8 +39,9 @@ YouTube (and other adaptive-streaming sites) serve video and audio as **separate
 ## Requirements
 
 - **yt-dlp** with EJS support (the `stable` channel sometimes lags YouTube's challenge changes; use `nightly` — `yt-dlp --update-to nightly`). The PyInstaller-bundled `.exe` ships the EJS scripts already.
-- **Node 22+** on PATH (yt-dlp defaults to Deno; this skill passes `--js-runtimes node`).
+- **Node 22+** on PATH. The skill passes `--js-runtimes node --remote-components ejs:github` so yt-dlp can solve JS challenges using Node and fetch the current EJS scripts from GitHub.
 - **ffmpeg** on PATH (merges the video + audio streams).
+- **A logged-in browser** (only if the source requires login). The skill tries the URL with no cookies first; on an auth wall it detects installed browsers (Firefox, Chrome, Edge, Brave, Doubao) and tries each one's cookies in turn. Falls back to copying cookies to a temp directory only if direct reads all fail.
 
 ## Install
 
@@ -52,19 +61,17 @@ Inside your agent, ask in plain language:
 
 > 下载这个视频:https://www.youtube.com/watch?v=...
 
-The skill fires, checks the environment (reuses existing binaries, doesn't reinstall), acquires cookies from a logged-in Chromium browser if the site needs login, and downloads the best-quality mp4. For sites that don't require login (many public Bilibili / X videos), it skips the cookie step.
-
-When the download finishes, hand the mp4 path to the `video-subtitle` skill for transcription and bilingual subtitles.
+The skill fires, checks the environment (reuses existing binaries, doesn't reinstall), and downloads the best-quality mp4 plus its metadata and cover into `<cwd>/<author>/<video-name>/raw/`. For public videos it skips cookies entirely; for login-walled sources it walks detected browsers until one works. Confirm or override the `<author>` / `<video-name>` / `<name>` stem before the download starts.
 
 ## Handoff
 
-This skill and [`video-subtitle`](https://github.com/ChHsiching/video-subtitle-skill) are designed to chain:
+This skill and [`video-subtitle`](https://github.com/ChHsiching/video-subtitle-skill) share a directory convention, so they chain by pointing at the same path:
 
 ```
-video-download  ──►  <title>.mp4  ──►  video-subtitle  ──►  cooked bilingual mp4 + srt + upload.md
+video-download  ──►  <output-root>/raw/<name>.{raw.mp4, source.json, jpg}  ──►  video-subtitle  ──►  cooked mp4 + srt + upload.md
 ```
 
-Run them by hand, one after the other — the user may want to review the raw video before committing to the (slower) subtitle pipeline.
+Both default `<output-root>` to `<cwd>/<author>/<video-name>/`, so running them back-to-back produces a single tidy folder with no moving or renaming between them. Run them by hand, one after the other — the user may want to review the raw video before committing to the (slower) subtitle pipeline.
 
 ## License
 
