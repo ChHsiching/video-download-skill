@@ -38,7 +38,7 @@ YouTube (and other adaptive-streaming sites) serve video and audio as **separate
 
 ## Requirements
 
-- **yt-dlp** with EJS support (the `stable` channel sometimes lags YouTube's challenge changes; use `nightly` — `yt-dlp --update-to nightly`). The PyInstaller-bundled `.exe` ships the EJS scripts already.
+- **yt-dlp** with EJS support. The skill checks the project directory for a local `yt-dlp.exe` (Windows) or `yt-dlp` (macOS/Linux) first; if missing or stale (can't solve the current challenge), it downloads the latest release straight from [GitHub](https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe) into the project directory. The PyInstaller-bundled `.exe` ships the EJS scripts already.
 - **Node 22+** on PATH. The skill passes `--js-runtimes node --remote-components ejs:github` so yt-dlp can solve JS challenges using Node and fetch the current EJS scripts from GitHub.
 - **ffmpeg** on PATH (merges the video + audio streams).
 - **A logged-in browser** (only if the source requires login). The skill tries the URL with no cookies first; on an auth wall it detects installed browsers (Firefox, Chrome, Edge, Brave, Doubao) and tries each one's cookies in turn. Falls back to copying cookies to a temp directory only if direct reads all fail.

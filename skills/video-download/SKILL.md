@@ -35,14 +35,24 @@ This layout is a generic "organize downloaded videos" convention. A user who jus
 
 Before downloading, check what's already on disk. Three things are needed and each may already be present.
 
-1. **yt-dlp binary**. Find an existing `yt-dlp.exe` (Windows) or `yt-dlp` (macOS/Linux). Check, in order:
-   - The current project directory
-   - `PATH` (run `yt-dlp --version`)
-   Use the first one found. It **must** support EJS (the external JavaScript challenge solver) — the `stable` channel sometimes lags; if `-F` only returns storyboard images (no video/audio formats) on a site that requires JS challenge solving (notably YouTube), the version can't solve the n-challenge and you need the **nightly** channel: `yt-dlp --update-to nightly`, or download from `https://github.com/yt-dlp/yt-dlp/releases` if there's no binary at all. The PyInstaller-bundled `.exe` ships EJS scripts already; no extra install for those.
+1. **yt-dlp binary**. Check the **current project directory first** — `./yt-dlp.exe` on Windows, `./yt-dlp` on macOS/Linux. A project-local copy is preferred over the one on PATH, because yt-dlp's challenge-solving EJS scripts drift out of date and you want a known-fresh binary you control. Then:
+   - **Found locally** → use it. Verify capability (not version number) by running Step 1's `-F` later: if it returns only storyboard images on a JS-challenge site (YouTube most commonly), the binary is too stale to solve the current challenge.
+   - **Not found locally** → download the latest release directly into the current directory:
+     ```powershell
+     # Windows (PowerShell)
+     curl.exe -L -o yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
+     # macOS/Linux
+     curl -L -o yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp && chmod +x yt-dlp
+     ```
+     The `/latest/download/` path always serves the newest release — no need to look up the tag first. Take the full `yt-dlp.exe`, never `yt-dlp_min.exe` (the min build ships without the EJS scripts this skill relies on).
+   - **Found locally but stale** (Step 1's `-F` returns only storyboard on a site that should serve video) → re-download over the existing file using the same command above, then retry `-F`. The `/latest/download/` URL already serves the newest release; there is no newer channel to switch to.
+   - **PATH has yt-dlp but the project doesn't** → still download a local copy. A project-local binary keeps the run reproducible and immune to whatever yt-dlp version happens to be globally installed.
+
+   The PyInstaller-bundled `.exe` ships the EJS scripts already; no separate install for those. The completion criterion is "a project-local yt-dlp binary exists and Step 1's `-F` later returns real video/audio formats" — version numbers are not the signal, capability is.
 2. **Node 22+**. yt-dlp solves the n-challenge in a JavaScript runtime. The default is **Deno**, which most Windows machines don't have — so you must pass `--js-runtimes node` explicitly. You also need `--remote-components ejs:github`, which tells yt-dlp to fetch the current EJS challenge-solving scripts from GitHub (the bundled ones drift out of date as sites change their challenges). Check `node --version`; require >= 22.0.0. If Node is missing, tell the user to install it (don't try to install it yourself). Required only when the site needs JS challenge solving; harmless otherwise.
 3. **ffmpeg**. yt-dlp merges the separate video and audio streams into one mp4 via ffmpeg. Run `ffmpeg -version`; if missing, tell the user to install it.
 
-The completion criterion for this step: you can name the exact yt-dlp binary path, Node is on PATH (>= 22), and ffmpeg is on PATH. Don't proceed to Step 1 until all three are confirmed.
+The completion criterion for this step: a project-local yt-dlp binary exists (downloaded if needed), Node is on PATH (>= 22), and ffmpeg is on PATH. Don't proceed to Step 1 until all three are confirmed. The project-local binary's actual capability gets verified in Step 1's `-F` run.
 
 ## The pipeline
 
@@ -100,7 +110,7 @@ copy "<UserData>\Default\Network\Cookies" "<cookies-dir>\Default\Network\Cookies
 copy "<UserData>\Local State" "<cookies-dir>\Local State"
 ```
 
-Use a **Windows-native absolute path** for `<cookies-dir>`. Do not use a Git-Bash `/tmp/...` path — the nightly build's cookie loader rejects it with "could not find chromium cookies database". Then retry `-F` with `--cookies-from-browser "chromium:<cookies-dir>"`.
+Use a **Windows-native absolute path** for `<cookies-dir>`. Do not use a Git-Bash `/tmp/...` path — yt-dlp's cookie loader rejects it with "could not find chromium cookies database". Then retry `-F` with `--cookies-from-browser "chromium:<cookies-dir>"`.
 
 **2c. If everything fails, stop and tell the user.** Report which browsers you tried and that none worked. Ask the user to log into the target site in some browser and re-run. Stop here — the failure mode of "tried a browser where they aren't logged in" looks identical to "cookies broken", so more guessing won't help.
 
@@ -147,7 +157,7 @@ ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 "<
 
 ## Gotchas we hit and you will too
 
-- **Stable may lag the challenge.** Sites change their JS challenges frequently. If `-F` returns only storyboard images on a site that should serve video (YouTube most commonly), and `--js-runtimes node --remote-components ejs:github` is already set, the bundled EJS scripts may be stale — switch yt-dlp to nightly (`yt-dlp --update-to nightly`) or check [yt-dlp issues](https://github.com/yt-dlp/yt-dlp/issues). Per-site quirks are noted in yt-dlp's [support list](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
+- **A fresh binary still couldn't solve the challenge.** If `-F` returns only storyboard images on a JS-challenge site even after re-downloading the latest GitHub release and confirming `--js-runtimes node --remote-components ejs:github` is set, the site has changed its challenge faster than yt-dlp has caught up. Check [yt-dlp issues](https://github.com/yt-dlp/yt-dlp/issues) for the current status. Per-site quirks are noted in yt-dlp's [support list](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
 ## Handoff
 
