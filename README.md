@@ -23,37 +23,38 @@ Single responsibility: fetch the raw video and its metadata. Transcription, tran
 ```
 <URL>
   │
-  ├─ yt-dlp -F ──► format list (no cookies first; escalate only on auth wall)
-  │     │
-  │     ├─ --js-runtimes node --remote-components ejs:github ──► solves YouTube's n-challenge
-  │     └─ --cookies-from-browser <detected> ──► passes the login wall (only if needed)
-  │
-  └─ yt-dlp -f bestvideo+bestaudio --merge-output-format mp4 \
-       --write-thumbnail --convert-thumbnails jpg --dump-json
-       ──► <name>.raw.mp4 + <name>.source.json + <name>.jpg
-       (ffmpeg muxes the separate streams into one file)
+  └─ cook download <url>
+       │
+       ├─ yt-dlp -F ──► format list (no cookies first; escalate only on auth wall)
+       │     ├─ --js-runtimes node --remote-components ejs:github ──► solves YouTube's n-challenge
+       │     └─ --cookies-from-browser <negotiated> ──► passes the login wall (firefox→chrome→edge→brave)
+       │
+       └─ yt-dlp -f bestvideo+bestaudio --merge-output-format mp4 \
+            --write-thumbnail --convert-thumbnails jpg --print-to-file
+            ──► <name>.raw.mp4 + <name>.source.json + <name>.jpg
+            (cook renames thumbnail .raw.jpg → .jpg; ffmpeg muxes the separate streams)
 ```
+
+[`cook`](https://github.com/ChHsiching/video-cook) assembles every yt-dlp command correctly every time — no shell escaping traps, no stdout-redirect swallowing downloads, no forgotten thumbnail rename. The skill docs shrink to a one-step pipeline; the completion criterion is "cook exit 0".
 
 YouTube (and other adaptive-streaming sites) serve video and audio as **separate streams** above 720p. Fetching `bestvideo+bestaudio` and merging is the only way to get 1080p+ with sound.
 
 ## Requirements
 
-- **yt-dlp** with EJS support. The skill checks the project directory for a local `yt-dlp.exe` (Windows) or `yt-dlp` (macOS/Linux) first; if missing or stale (can't solve the current challenge), it downloads the latest release straight from [GitHub](https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe) into the project directory. The PyInstaller-bundled `.exe` ships the EJS scripts already.
-- **Node 22+** on PATH. The skill passes `--js-runtimes node --remote-components ejs:github` so yt-dlp can solve JS challenges using Node and fetch the current EJS scripts from GitHub.
+- **[`cook`](https://github.com/ChHsiching/video-cook)** CLI: `pip install video-cook[download]`
+- **yt-dlp** (pulled in by cook's `download` extra). A project-local `yt-dlp.exe` is also supported if the pip version is too stale to solve the current challenge — see [REFERENCE.md](skills/video-download/REFERENCE.md).
+- **Node 22+** on PATH (yt-dlp solves JS challenges via Node).
 - **ffmpeg** on PATH (merges the video + audio streams).
-- **A logged-in browser** (only if the source requires login). The skill tries the URL with no cookies first; on an auth wall it detects installed browsers (Firefox, Chrome, Edge, Brave, Doubao) and tries each one's cookies in turn. Falls back to copying cookies to a temp directory only if direct reads all fail.
+- **A logged-in browser** (only if the source requires login). cook tries the URL with no cookies first; on an auth wall it detects installed browsers (Firefox, Chrome, Edge, Brave) and tries each in turn. Falls back to asking the user + temp-directory copy only if direct reads all fail.
 
 ## Install
 
-Install into any agent project via the [skills.sh](https://skills.sh) installer:
-
 ```bash
 npx skills add ChHsiching/video-download-skill
+pip install video-cook[download]
 ```
 
-This works because the repo follows the standard layout the installer walks: a `skills/video-download/SKILL.md` with valid `name` + `description` frontmatter, plus a `.claude-plugin/plugin.json` manifest. The installer copies the skill into your agent's skills directory (`.agents/skills/`, `.claude/skills/`, etc.).
-
-Then make sure yt-dlp, Node, and ffmpeg are on PATH system-wide.
+Then make sure Node and ffmpeg are on PATH system-wide.
 
 ## Usage
 
@@ -61,14 +62,16 @@ Inside your agent, ask in plain language:
 
 > 下载这个视频:https://www.youtube.com/watch?v=...
 
-The skill fires, checks the environment (reuses existing binaries, doesn't reinstall), and downloads the best-quality mp4 plus its metadata and cover into `<cwd>/<author>/<video-name>/raw/`. For public videos it skips cookies entirely; for login-walled sources it walks detected browsers until one works. Confirm or override the `<author>` / `<video-name>` / `<name>` stem before the download starts.
+The skill fires, runs `cook doctor` to confirm the environment, then `cook download`. For public videos it skips cookies entirely; for login-walled sources cook walks detected browsers until one works. Confirm or override the `<author>` / `<video-name>` / `<name>` stem before the download starts.
+
+To run the full download → subtitle chain in one command, use the [`video-cooking`](https://github.com/ChHsiching/video-cooking-skill) router: `/video-cooking <URL>`.
 
 ## Handoff
 
 This skill and [`video-subtitle`](https://github.com/ChHsiching/video-subtitle-skill) share a directory convention, so they chain by pointing at the same path:
 
 ```
-video-download  ──►  <output-root>/raw/<name>.{raw.mp4, source.json, jpg}  ──►  video-subtitle  ──►  cooked mp4 + srt + upload.md
+video-download  ──►  <output-root>/raw/<name>.{raw.mp4, source.json, jpg}  ──►  video-subtitle  ──►  cooked mp4 + srt + upload.md + shipment
 ```
 
 Both default `<output-root>` to `<cwd>/<author>/<video-name>/`, so running them back-to-back produces a single tidy folder with no moving or renaming between them. Run them by hand, one after the other — the user may want to review the raw video before committing to the (slower) subtitle pipeline.
