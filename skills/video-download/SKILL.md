@@ -53,13 +53,13 @@ cook download <url> [--author <author>] [--name <name>] [--quality 1080] [--cook
 
 cook does the whole download in one shot:
 - Probes the URL with `-F` (no cookies first)
-- If the probe hits an auth wall ("Sign in to confirm you're not a bot" / login wall / age gate), cook negotiates a cookie source internally: tries each installed browser (firefox → chrome → edge → brave) until one works. If none works, cook stops and asks the user which browser they're logged in with — **don't guess**; trying a browser where they aren't logged in wastes a cycle and the failure looks identical to "cookies broken".
+- If the probe hits the YouTube bot wall (error containing "Sign in to confirm you're not a bot" or "bot"), cook negotiates a cookie source internally: tries each installed browser (firefox → chrome → edge → brave) until one works. If none works, cook stops and asks the user which browser they're logged in with — **don't guess**; trying a browser where they aren't logged in wastes a cycle and the failure looks identical to "cookies broken".
 - Downloads video + audio (best quality, or capped with `--quality`), merges to mp4 via ffmpeg
 - Writes `<name>.source.json` via `--print-to_file` (the safe way — the old `--dump-json > file.json` stdout redirect silently swallowed downloads)
 - Writes the thumbnail and renames it from `<name>.raw.jpg` to `<name>.jpg` (yt-dlp's `-o` template leaves the `.raw` infix in the thumbnail name; cook fixes it)
 - Runs `ffprobe` to verify `duration > 0`
 
-cook derives `<author>` and `<name>` from the source metadata (uploader / title). **Confirm these with the user before downloading** — they set the filename stem for every downstream artifact. Pass `--author` and `--name` to override; or let cook use defaults and confirm after probe.
+cook derives `<author>` and `<name>` from the source metadata (uploader / title). **Confirm these with the user before downloading** — they set the filename stem for every downstream artifact, and cook writes files to that path during download (there is no "rename afterward" path). Pass `--author` and `--name` to override the defaults.
 
 **Quality override:** by default cook takes the best quality the source offers. If the user asked for less ("1080p is fine", "skip 4K"), pass `--quality 1080` (caps height; falls back to the best muxed stream at or under that height). Only cap when the user asks.
 

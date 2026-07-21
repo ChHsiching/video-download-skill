@@ -14,7 +14,7 @@ If cook is not installed, the commands below still work — just be aware of the
 
 ## Cookie negotiation — the full table
 
-When a cookieless `-F` hits "Sign in to confirm you're not a bot" / login wall / age gate / members-only error, cook negotiates a `--cookies-from-browser` value internally. The candidates, tried in order:
+When a cookieless `-F` hits the YouTube bot wall (error string containing "Sign in to confirm you're not a bot" or "bot"), cook negotiates a `--cookies-from-browser` value internally. The candidates, tried in order:
 
 | Browser | yt-dlp name | Windows profile |
 |---|---|---|
@@ -24,7 +24,7 @@ When a cookieless `-F` hits "Sign in to confirm you're not a bot" / login wall /
 | Brave | `brave` | `%LOCALAPPDATA%\BraveSoftware\Brave-Browser\User Data` |
 | Doubao (豆包) | `chromium:<profile-path>` | `%LOCALAPPDATA%\Doubao\User Data` |
 
-Firefox/Chrome/Edge/Brave are read directly by brand. Doubao and other Chromium forks need the `chromium:<profile-path>` form because yt-dlp doesn't recognize their brand. cook checks each profile dir exists before trying, to skip browsers that aren't installed.
+Firefox/Chrome/Edge/Brave are read directly by brand and are the only four cook auto-tries (it checks each profile dir exists first to skip browsers that aren't installed). Doubao and other Chromium forks need the `chromium:<profile-path>` form because yt-dlp doesn't recognize their brand — **cook does NOT auto-try Doubao**, the form is documented here for manual `--cookies-from-browser` use only.
 
 ### The temp-directory workaround (when direct reads all fail)
 
@@ -32,7 +32,9 @@ Two failure modes survive the direct-read pass:
 1. A Chromium browser holding an exclusive lock on its Cookies database.
 2. A Chromium fork yt-dlp can't read in-place.
 
-For these, cook (or the agent by hand) copies the cookies to a temp directory. **Ask the user which browser they're logged into the target site with** — don't guess; "wrong browser" and "broken cookies" produce identical failures.
+cook does NOT implement this workaround — when all four auto-tries fail, cook stops and reports failure. The agent must perform the temp-directory copy manually:
+
+**Ask the user which browser they're logged into the target site with** — don't guess; "wrong browser" and "broken cookies" produce identical failures.
 
 Kill that browser's processes first (closing the window isn't enough — Chromium leaves background processes holding the lock):
 
@@ -67,7 +69,7 @@ yt-dlp --js-runtimes node --remote-components ejs:github \
   [--cookies-from-browser "<source>"] \
   -f "bestvideo+bestaudio" --merge-output-format mp4 \
   --write-thumbnail --convert-thumbnails jpg \
-  --print-to-file "%()j:<output-root>/raw/<name>.source.json" \
+  --print-to-file "%(all)j" "<output-root>/raw/<name>.source.json" \
   -o "<output-root>/raw/<name>.raw.%(ext)s" \
   "<URL>"
 ```
@@ -76,14 +78,14 @@ Flag notes:
 - `-f "bestvideo+bestaudio"` picks the highest-resolution video and highest-bitrate audio streams separately; `--merge-output-format mp4` muxes them. Sites that serve video and audio as separate adaptive streams above 720p (YouTube, others) require this to get 1080p+ with sound. Falls back to best muxed format automatically if the site only offers muxed streams.
 - For quality cap: replace with `-f "bv*[height<=1080]+ba/b[height<=1080]"` (cook's `--quality 1080` does this).
 - `--write-thumbnail --convert-thumbnails jpg` writes the best-scored thumbnail normalized to jpg.
-- `--print-to-file "%()j:<path>"` writes the full info-dict JSON to the path. This is the **safe** alternative to `--dump-json > file.json` (which can swallow the download via stdout redirect).
+- `--print-to-file` takes **two separate arguments**: a template (`%(all)j` = the full info-dict as JSON) and a target path. This is the **safe** alternative to `--dump-json > file.json` (which can swallow the download via stdout redirect). cook uses the Python API equivalent (`print_to_file` option with a dict `{template: path}`) so the syntax here is the CLI form for manual use.
 - `-o "<output-root>/raw/<name>.raw.%(ext)s"` — the literal `.raw` infix is intentional for the video (lands as `<name>.raw.mp4`), but it also affects the thumbnail (lands as `<name>.raw.jpg`). cook renames the thumbnail to `<name>.jpg` after download.
 
 ### Verify (Step 1 internally)
 ```
-ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 "<output-root>/raw/<name>.raw.mp4"
+ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "<output-root>/raw/<name>.raw.mp4"
 ```
-`duration > 0` = well-formed, playable mp4.
+The `:nokey=1` suffix makes ffprobe print only the duration value (`4480.034000`), not `duration=4480.034000` — so `float(output)` parses cleanly. `duration > 0` = well-formed, playable mp4.
 
 ## Environment details
 
